@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduSpace - Alternative Drive & Hub</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- SDKs Firebase version Web v10 (Compatibles modules/ESM) -->
+  <script type="importmap">
+    {
+      "imports": {
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js",
+        "firebase/storage": "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <!-- ÉCRAN D'AUTHENTIFICATION / CONNEXION VIA PIN -->
+  <div id="authOverlay" class="overlay">
+    <div class="auth-card">
+      <div class="auth-header">
+        <i class="fa-solid fa-graduation-cap logo-icon"></i>
+        <h2>Bienvenue sur EduSpace</h2>
+        <p>Entrez votre email et votre code PIN à 4 chiffres pour accéder à vos fichiers partout.</p>
+      </div>
+      <form id="authForm">
+        <div class="form-group">
+          <label for="userEmail"><i class="fa-solid fa-envelope"></i> Adresse Email</label>
+          <input type="email" id="userEmail" placeholder="votre@email.com" required>
+        </div>
+        <div class="form-group">
+          <label for="userPin"><i class="fa-solid fa-key"></i> Code PIN Secret (4-6 chiffres)</label>
+          <input type="password" id="userPin" maxlength="6" placeholder="Ex: 1234" pattern="[0-9]*" inputmode="numeric" required>
+        </div>
+        <button type="submit" id="btnConnect" class="btn btn-primary">
+          <i class="fa-solid fa-right-to-bracket"></i> Se connecter / S'inscrire
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- APPLICATION PRINCIPALE -->
+  <div class="app-container">
+    
+    <!-- BARRE LATÉRALE (Gauche sur PC / Bas sur Mobile) -->
+    <aside class="sidebar">
+      <div class="brand">
+        <i class="fa-solid fa-graduation-cap"></i>
+        <span>EduSpace</span>
+      </div>
+      <nav class="nav-menu">
+        <button class="nav-btn" data-target="agenda">
+          <i class="fa-solid fa-calendar-days"></i>
+          <span>Agenda</span>
+        </button>
+        <button class="nav-btn active" data-target="drive">
+          <i class="fa-solid fa-hard-drive"></i>
+          <span>EduDrive</span>
+        </button>
+        <button class="nav-btn disabled">
+          <i class="fa-solid fa-circle-question"></i>
+          <span>App 3</span>
+        </button>
+        <button class="nav-btn disabled">
+          <i class="fa-solid fa-circle-question"></i>
+          <span>App 4</span>
+        </button>
+        <button class="nav-btn disabled">
+          <i class="fa-solid fa-circle-question"></i>
+          <span>App 5</span>
+        </button>
+        <button class="nav-btn disabled">
+          <i class="fa-solid fa-circle-question"></i>
+          <span>App 6</span>
+        </button>
+      </nav>
+      <div class="user-profile">
+        <i class="fa-solid fa-user-circle"></i>
+        <span id="displayUserEmail">Chargement...</span>
+        <button id="btnLogout" title="Déconnexion"><i class="fa-solid fa-power-off"></i></button>
+      </div>
+    </aside>
+
+    <!-- CONTENU PRINCIPAL -->
+    <main class="main-content">
+
+      <!-- SECTION AGENDA (Placé au centre / écran dédié) -->
+      <section id="section-agenda" class="app-section">
+        <header class="section-header">
+          <h2><i class="fa-solid fa-calendar-day"></i> Agenda Scolaire</h2>
+          <p>Organisez vos devoirs, révisions et événements.</p>
+        </header>
+        <div class="agenda-placeholder">
+          <i class="fa-solid fa-calendar-check large-icon"></i>
+          <h3>Votre Agenda est synchronisé</h3>
+          <p>Ajoutez des événements et rappels personnalisés avec un code couleur.</p>
+        </div>
+      </section>
+
+      <!-- SECTION EDUDRIVE -->
+      <section id="section-drive" class="app-section active">
+        <header class="section-header">
+          <div class="header-titles">
+            <h2><i class="fa-solid fa-folder-open"></i> EduDrive Synchronisé</h2>
+            <div id="breadcrumb" class="breadcrumb">
+              <span class="crumb" data-folder-id="root"><i class="fa-solid fa-house"></i> Racine</span>
+            </div>
+          </div>
+          
+          <!-- Actions & Modes d'affichage -->
+          <div class="header-actions">
+            <button id="btnNewFolder" class="btn btn-secondary">
+              <i class="fa-solid fa-folder-plus"></i> Nouveau Dossier
+            </button>
+            <label for="fileUploadInput" class="btn btn-primary">
+              <i class="fa-solid fa-cloud-arrow-up"></i> Transférer un fichier
+            </label>
+            <input type="file" id="fileUploadInput" style="display: none;">
+
+            <!-- Switcher Mode d'affichage -->
+            <div class="view-toggle">
+              <button id="btnViewList" class="btn-toggle" title="Vue Liste (Barre d'extension compacte)">
+                <i class="fa-solid fa-list"></i>
+              </button>
+              <button id="btnViewGrid" class="btn-toggle active" title="Vue Affiches (3 colonnes avec aperçu)">
+                <i class="fa-solid fa-table-cells-large"></i>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <!-- Zone de dépôt et d'affichage des fichiers/dossiers -->
+        <div id="driveContainer" class="drive-container view-grid">
+          <div class="loading-spinner" id="driveLoader">
+            <i class="fa-solid fa-spinner fa-spin"></i> Chargement de votre Drive...
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- MENU CONTEXTUEL CLIC DROIT -->
+  <div id="contextMenu" class="context-menu">
+    <ul>
+      <li id="ctxOpen"><i class="fa-solid fa-folder-open"></i> Ouvrir / Télécharger</li>
+      <li id="ctxRename"><i class="fa-solid fa-pen"></i> Renommer</li>
+      <li id="ctxDelete" class="danger"><i class="fa-solid fa-trash-can"></i> Supprimer</li>
+    </ul>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
