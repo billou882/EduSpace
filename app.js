@@ -5,13 +5,12 @@ import {
 } from "firebase/auth";
 import { 
   getFirestore, collection, addDoc, query, where, onSnapshot, 
-  doc, updateDoc, deleteDoc, serverTimestamp 
+  doc, updateDoc, deleteDoc, setDoc, getDoc, serverTimestamp 
 } from "firebase/firestore";
 import { 
   getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject 
 } from "firebase/storage";
 
-// CONFIGURATION FIREBASE
 const firebaseConfig = {
   apiKey: "AIzaSyCl-STPFTNAmNAsCO1K-CQM3hdpioqzAXg",
   authDomain: "eduspace-4f37c.firebaseapp.com",
@@ -22,99 +21,143 @@ const firebaseConfig = {
   measurementId: "G-N15GDZF116"
 };
 
-// INITIALISATION
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
-// ÉTAT GLOBAL
 let currentUser = null;
 let currentFolderId = "root";
 let folderHistory = [{ id: "root", name: "Racine" }];
-let selectedItem = null; // Élément ciblé par le clic droit
+let selectedItem = null;
 
-// DOM ELEMENTS
+// DOM Elements
 const authOverlay = document.getElementById("authOverlay");
-const authForm = document.getElementById("authForm");
-const userEmailInput = document.getElementById("userEmail");
-const userPinInput = document.getElementById("userPin");
+const tabPass = document.getElementById("tabPass");
+const tabPin = document.getElementById("tabPin");
+const formPass = document.getElementById("formPass");
+const formPin = document.getElementById("formPin");
+
+const userEmailPass = document.getElementById("userEmailPass");
+const userPassword = document.getElementById("userPassword");
+const userEmailPin = document.getElementById("userEmailPin");
+const devicePinInput = document.getElementById("devicePinInput");
+
 const displayUserEmail = document.getElementById("displayUserEmail");
 const btnLogout = document.getElementById("btnLogout");
 
-const driveContainer = document.getElementById("driveContainer");
-const driveLoader = document.getElementById("driveLoader");
-const btnNewFolder = document.getElementById("btnNewFolder");
-const fileUploadInput = document.getElementById("fileUploadInput");
-const breadcrumb = document.getElementById("breadcrumb");
-
-const btnViewList = document.getElementById("btnViewList");
-const btnViewGrid = document.getElementById("btnViewGrid");
-const contextMenu = document.getElementById("contextMenu");
+const currentDevicePin = document.getElementById("currentDevicePin");
+const pinExpiryDate = document.getElementById("pinExpiryDate");
+const btnRegeneratePin = document.getElementById("btnRegeneratePin");
 
 /* ======================================================
-   1. AUTHENTIFICATION & SAUVEGARDE SUR L'APPAREIL
+   1. NAVIGATION ENTRE ÉCRANS ET ONGLETS
    ====================================================== */
 
-// Auto-reconnaissance de l'appareil via LocalStorage (Pas besoin de se reconnecter)
-document.addEventListener("DOMContentLoaded", () => {
-  const savedEmail = localStorage.getItem("eduspace_email");
-  const savedPin = localStorage.getItem("eduspace_pin");
-
-  if (savedEmail && savedPin) {
-    userEmailInput.value = savedEmail;
-    userPinInput.value = savedPin;
-    loginUser(savedEmail, savedPin);
-  }
+// Switcher les onglets de connexion
+tabPass.addEventListener("click", () => {
+  tabPass.classList.add("active");
+  tabPin.classList.remove("active");
+  formPass.classList.add("active");
+  formPin.classList.remove("active");
 });
 
-authForm.addEventListener("submit", (e) => {
+tabPin.addEventListener("click", () => {
+  tabPin.classList.add("active");
+  tabPass.classList.remove("active");
+  formPin.classList.add("active");
+  formPass.classList.remove("active");
+});
+
+// Navigation menu latéral
+document.querySelectorAll(".nav-btn:not(.disabled)").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".app-section").forEach(s => s.classList.remove("active"));
+    
+    btn.classList.add("active");
+    const target = btn.dataset.target;
+    document.getElementById(`section-${target}`).classList.add("active");
+  });
+});
+
+/* ======================================================
+   2. LOGIQUE D'AUTHENTIFICATION & SURNOM
+   ====================================================== */
+
+// Convertir un surnom en format email si nécessaire
+function formatUserEmail(input) {
+  if (input.includes("@")) return input;
+  return `${input.toLowerCase().replace(/\s+/g, '')}@eduspace.local`;
+}
+
+// Option 1 : Connexion Email/Surnom + Mot de passe
+formPass.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const email = userEmailInput.value.trim();
-  const pin = userPinInput.value.trim();
-
-  if (pin.length < 4) {
-    alert("Le code PIN doit contenir au moins 4 chiffres.");
-    return;
-  }
-
-  loginUser(email, pin);
-});
-
-async function loginUser(email, pin) {
-  // Transforme le PIN en mot de passe sécurisé pour Firebase
-  const internalPassword = `EduSpace#${pin}#2026`;
+  const email = formatUserEmail(userEmailPass.value.trim());
+  const pass = userPassword.value.trim();
 
   try {
-    // Essaie de se connecter
-    await signInWithEmailAndPassword(auth, email, internalPassword);
-    saveLocalCredentials(email, pin);
+    await signInWithEmailAndPassword(auth, email, pass);
   } catch (error) {
-    // Si le compte n'existe pas, il le crée automatiquement
     if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
       try {
-        await createUserWithEmailAndPassword(auth, email, internalPassword);
-        saveLocalCredentials(email, pin);
+        await createUserWithEmailAndPassword(auth, email, pass);
       } catch (createErr) {
-        alert("Erreur de connexion/création: " + createErr.message);
+        alert("Erreur de création: " + createErr.message);
       }
     } else {
       alert("Erreur: " + error.message);
     }
   }
-}
+});
 
-function saveLocalCredentials(email, pin) {
-  localStorage.setItem("eduspace_email", email);
-  localStorage.setItem("eduspace_pin", pin);
-}
+// Option 2 : Connexion uniquement via Code Appareil
+formPin.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = formatUserEmail(userEmailPin.value.trim());
+  const pinEntered = devicePinInput.value.trim();
 
-// SURVEILLANCE DE L'ÉTAT DE CONNEXION
-onAuthStateChanged(auth, (user) => {
+  try {
+    // Vérifier dans Firestore si le PIN correspond
+    const pinDocRef = doc(db, "devicePins", email.toLowerCase());
+    const pinDoc = await getDoc(pinDocRef);
+
+    if (!pinDoc.exists()) {
+      alert("Aucun code appareil configuré pour cet utilisateur.");
+      return;
+    }
+
+    const data = pinDoc.data();
+    const now = new Date();
+    const expiry = data.expiresAt ? data.expiresAt.toDate() : new Date(0);
+
+    if (now > expiry) {
+      alert("Ce code appareil a expiré (renouvellement mensuel requis dans les Paramètres).");
+      return;
+    }
+
+    if (data.pin !== pinEntered) {
+      alert("Code appareil incorrect.");
+      return;
+    }
+
+    // Connexion avec le mot de passe maître stocké
+    await signInWithEmailAndPassword(auth, email, data.masterPass);
+
+  } catch (error) {
+    alert("Erreur lors de la vérification du code : " + error.message);
+  }
+});
+
+// Surveillance de l'état de connexion
+onAuthStateChanged(auth, async (user) => {
   if (user) {
     currentUser = user;
     displayUserEmail.textContent = user.email;
     authOverlay.style.display = "none";
+    
+    await checkAndAutoRenewPin();
     loadDriveContent();
   } else {
     currentUser = null;
@@ -122,32 +165,91 @@ onAuthStateChanged(auth, (user) => {
   }
 });
 
-btnLogout.addEventListener("click", () => {
-  localStorage.removeItem("eduspace_email");
-  localStorage.removeItem("eduspace_pin");
-  signOut(auth);
+btnLogout.addEventListener("click", () => signOut(auth));
+
+/* ======================================================
+   3. GESTION DU CODE APPAREIL & RENOUVELLEMENT MENSUEL
+   ====================================================== */
+
+function generate6DigitPin() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+async function checkAndAutoRenewPin() {
+  if (!currentUser) return;
+
+  const emailKey = currentUser.email.toLowerCase();
+  const pinDocRef = doc(db, "devicePins", emailKey);
+  const pinDoc = await getDoc(pinDocRef);
+
+  const now = new Date();
+
+  if (!pinDoc.exists()) {
+    await createNewDevicePin();
+  } else {
+    const data = pinDoc.data();
+    const expiry = data.expiresAt ? data.expiresAt.toDate() : new Date(0);
+
+    // Si le code a plus d'un mois, le renouveler automatiquement
+    if (now > expiry) {
+      await createNewDevicePin();
+    } else {
+      updatePinUI(data.pin, expiry);
+    }
+  }
+}
+
+async function createNewDevicePin() {
+  const newPin = generate6DigitPin();
+  
+  // Expiration définie à +30 jours (Changement tous les mois)
+  const expiryDate = new Date();
+  expiryDate.setDate(expiryDate.getDate() + 30);
+
+  const emailKey = currentUser.email.toLowerCase();
+  const pinDocRef = doc(db, "devicePins", emailKey);
+
+  await setDoc(pinDocRef, {
+    pin: newPin,
+    expiresAt: expiryDate,
+    updatedAt: serverTimestamp(),
+    masterPass: "EduSpaceMasterPass#2026"
+  }, { merge: true });
+
+  updatePinUI(newPin, expiryDate);
+}
+
+function updatePinUI(pin, expiry) {
+  currentDevicePin.textContent = pin;
+  pinExpiryDate.textContent = `Expire le : ${expiry.toLocaleDateString()}`;
+}
+
+// Bouton de régénération manuelle dans le sous-menu Paramètres
+btnRegeneratePin.addEventListener("click", async () => {
+  if (confirm("Voulez-vous générer un nouveau code appareil dès maintenant ?")) {
+    await createNewDevicePin();
+    alert("Nouveau code généré avec succès !");
+  }
 });
 
 /* ======================================================
-   2. GESTION DU DRIVE & SYNCHRONISATION FIRESTORE
+   4. GESTION DRIVE & MENU CONTEXTUEL
    ====================================================== */
 
 function loadDriveContent() {
   if (!currentUser) return;
 
-  driveLoader.style.display = "block";
-  
-  // Requête synchronisée en temps réel
   const q = query(
     collection(db, "users", currentUser.uid, "items"),
     where("parentId", "==", currentFolderId)
   );
 
   onSnapshot(q, (snapshot) => {
+    const driveContainer = document.getElementById("driveContainer");
     driveContainer.innerHTML = "";
     
     if (snapshot.empty) {
-      driveContainer.innerHTML = `<div class="empty-msg"><p>Ce dossier est vide.</p></div>`;
+      driveContainer.innerHTML = `<div style="grid-column: 1/-1; text-align:center; color: var(--text-muted); padding: 2rem;">Ce dossier est vide.</div>`;
       return;
     }
 
@@ -158,29 +260,16 @@ function loadDriveContent() {
   });
 }
 
-// Rendu visuel d'une carte (Dossier ou Fichier)
 function renderDriveCard(item) {
+  const driveContainer = document.getElementById("driveContainer");
   const card = document.createElement("div");
   card.className = "drive-card";
-  card.dataset.id = item.id;
-  card.dataset.type = item.type;
 
-  let previewContent = "";
-  let extBadge = "";
-
-  if (item.type === "folder") {
-    previewContent = `<i class="fa-solid fa-folder"></i>`;
-    extBadge = `<span class="badge-ext">Dossier</span>`;
-  } else {
+  let previewContent = item.type === "folder" ? `<i class="fa-solid fa-folder"></i>` : `<i class="fa-solid fa-file-lines"></i>`;
+  if (item.type === "file" && item.url) {
     const ext = item.name.split('.').pop().toLowerCase();
-    extBadge = `<span class="badge-ext">${ext}</span>`;
-
     if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) {
       previewContent = `<img src="${item.url}" alt="${item.name}">`;
-    } else if (ext === "pdf") {
-      previewContent = `<i class="fa-solid fa-file-pdf" style="color: #ef4444;"></i>`;
-    } else {
-      previewContent = `<i class="fa-solid fa-file-lines"></i>`;
     }
   }
 
@@ -189,11 +278,10 @@ function renderDriveCard(item) {
     <div class="card-footer">
       <i class="fa-solid ${item.type === 'folder' ? 'fa-folder' : 'fa-file'}"></i>
       <span class="card-title">${item.name}</span>
-      ${extBadge}
+      <span class="badge-ext">${item.type === 'folder' ? 'DOSSIER' : 'FICHIER'}</span>
     </div>
   `;
 
-  // Clic Gauche : Ouvrir Dossier / Fichier
   card.addEventListener("click", () => {
     if (item.type === "folder") {
       currentFolderId = item.id;
@@ -205,67 +293,20 @@ function renderDriveCard(item) {
     }
   });
 
-  // Clic Droit : Menu Contextuel
   card.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     selectedItem = item;
-    showContextMenu(e.clientX, e.clientY);
+    const contextMenu = document.getElementById("contextMenu");
+    contextMenu.style.left = `${e.clientX}px`;
+    contextMenu.style.top = `${e.clientY}px`;
+    contextMenu.style.display = "block";
   });
 
   driveContainer.appendChild(card);
 }
 
-/* ======================================================
-   3. CRÉATION DOSSIER & TRANSFEERT DE FICHIERS
-   ====================================================== */
-
-// Créer un dossier
-btnNewFolder.addEventListener("click", async () => {
-  const folderName = prompt("Nom du nouveau dossier :");
-  if (!folderName) return;
-
-  await addDoc(collection(db, "users", currentUser.uid, "items"), {
-    name: folderName,
-    type: "folder",
-    parentId: currentFolderId,
-    createdAt: serverTimestamp()
-  });
-});
-
-// Téléverser un fichier vers Firebase Storage
-fileUploadInput.addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  const storageRef = ref(storage, `users/${currentUser.uid}/${Date.now()}_${file.name}`);
-  const uploadTask = uploadBytesResumable(storageRef, file);
-
-  uploadTask.on("state_changed", 
-    null, 
-    (error) => alert("Erreur d'envoi: " + error.message),
-    async () => {
-      const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-      
-      // Sauvegarder les métadonnées dans Firestore
-      await addDoc(collection(db, "users", currentUser.uid, "items"), {
-        name: file.name,
-        type: "file",
-        size: file.size,
-        mimeType: file.type,
-        url: downloadURL,
-        storagePath: storageRef.fullPath,
-        parentId: currentFolderId,
-        createdAt: serverTimestamp()
-      });
-    }
-  );
-});
-
-/* ======================================================
-   4. FIL D'ARIANE (BREADCRUMB) & MODES D'AFFICHAGE
-   ====================================================== */
-
 function updateBreadcrumb() {
+  const breadcrumb = document.getElementById("breadcrumb");
   breadcrumb.innerHTML = "";
   folderHistory.forEach((crumb, index) => {
     const span = document.createElement("span");
@@ -281,52 +322,64 @@ function updateBreadcrumb() {
   });
 }
 
-// Switcher Vue Grille (Affiches 3 Colonnes) / Vue Liste Compacte
-btnViewGrid.addEventListener("click", () => {
-  driveContainer.className = "drive-container view-grid";
-  btnViewGrid.classList.add("active");
-  btnViewList.classList.remove("active");
+// Action de création de dossier
+document.getElementById("btnNewFolder").addEventListener("click", async () => {
+  const folderName = prompt("Nom du nouveau dossier :");
+  if (!folderName) return;
+
+  await addDoc(collection(db, "users", currentUser.uid, "items"), {
+    name: folderName,
+    type: "folder",
+    parentId: currentFolderId,
+    createdAt: serverTimestamp()
+  });
 });
 
-btnViewList.addEventListener("click", () => {
-  driveContainer.className = "drive-container view-list";
-  btnViewList.classList.add("active");
-  btnViewGrid.classList.remove("active");
+// Action de téléversement de fichier
+document.getElementById("fileUploadInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const storageRef = ref(storage, `users/${currentUser.uid}/${Date.now()}_${file.name}`);
+  const uploadTask = uploadBytesResumable(storageRef, file);
+
+  uploadTask.on("state_changed", null, 
+    (err) => alert("Erreur d'envoi : " + err.message),
+    async () => {
+      const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+      await addDoc(collection(db, "users", currentUser.uid, "items"), {
+        name: file.name,
+        type: "file",
+        url: downloadURL,
+        storagePath: storageRef.fullPath,
+        parentId: currentFolderId,
+        createdAt: serverTimestamp()
+      });
+    }
+  );
 });
 
-/* ======================================================
-   5. MENU CONTEXTUEL (RENOMMER / SUPPRIMER)
-   ====================================================== */
-
-function showContextMenu(x, y) {
-  contextMenu.style.left = `${x}px`;
-  contextMenu.style.top = `${y}px`;
-  contextMenu.style.display = "block";
-}
-
+// Fermer le menu contextuel au clic ailleurs
 document.addEventListener("click", () => {
-  contextMenu.style.display = "none";
+  document.getElementById("contextMenu").style.display = "none";
 });
 
-// Renommer
+// Menu contextuel : Renommer
 document.getElementById("ctxRename").addEventListener("click", async () => {
   if (!selectedItem) return;
   const newName = prompt("Nouveau nom :", selectedItem.name);
   if (!newName) return;
 
-  const itemRef = doc(db, "users", currentUser.uid, "items", selectedItem.id);
-  await updateDoc(itemRef, { name: newName });
+  await updateDoc(doc(db, "users", currentUser.uid, "items", selectedItem.id), { name: newName });
 });
 
-// Supprimer
+// Menu contextuel : Supprimer
 document.getElementById("ctxDelete").addEventListener("click", async () => {
   if (!selectedItem) return;
   if (!confirm(`Supprimer "${selectedItem.name}" ?`)) return;
 
-  // Si c'est un fichier, supprimer aussi dans Firebase Storage
   if (selectedItem.type === "file" && selectedItem.storagePath) {
-    const fileRef = ref(storage, selectedItem.storagePath);
-    await deleteObject(fileRef).catch(console.error);
+    await deleteObject(ref(storage, selectedItem.storagePath)).catch(console.error);
   }
 
   await deleteDoc(doc(db, "users", currentUser.uid, "items", selectedItem.id));
