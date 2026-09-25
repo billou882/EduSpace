@@ -1,230 +1,95 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EduSpace - Hub, Agenda & Drive</title>
-  <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<!-- BARRE LATÉRALE (SIDEBAR) -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <i class="fa-solid fa-graduation-cap"></i>
+    <h1>EduSpace</h1>
+  </div>
   
-  <script type="importmap">
-    {
-      "imports": {
-        "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
-        "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
-        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js",
-        "firebase/storage": "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js"
-      }
-    }
-  </script>
-</head>
-<body>
+  <nav class="sidebar-nav">
+    <button class="nav-btn active" data-target="accueil"><i class="fa-solid fa-home"></i> Accueil</button>
+    <button class="nav-btn" data-target="drive"><i class="fa-brands fa-google-drive"></i> Mon EduSchool</button>
+    <button class="nav-btn" data-target="agenda"><i class="fa-solid fa-calendar-days"></i> Agenda</button>
+    <!-- Extensions grisées -->
+    <button class="nav-btn disabled" style="opacity: 0.5; cursor: not-allowed;" title="Bientôt disponible"><i class="fa-solid fa-puzzle-piece"></i> Extensions</button>
+  </nav>
 
-  <!-- ÉCRAN D'AUTHENTIFICATION -->
-  <div id="authOverlay" class="overlay">
-    <div class="auth-card">
-      <div class="auth-header">
-        <i class="fa-solid fa-graduation-cap logo-icon"></i>
-        <h2>Bienvenue sur EduSpace</h2>
-        <p>Connexion rapide et sécurisée</p>
-      </div>
-
-      <div class="auth-tabs">
-        <button id="tabPass" class="tab-btn active"><i class="fa-solid fa-user"></i> Mot de passe / Surnom</button>
-        <button id="tabPin" class="tab-btn"><i class="fa-solid fa-mobile-screen"></i> Code Appareil</button>
-      </div>
-
-      <!-- Formulaire Mot de Passe -->
-      <form id="formPass" class="auth-form active">
-        <div class="form-group">
-          <label for="userEmailPass"><i class="fa-solid fa-envelope"></i> Email ou Surnom</label>
-          <input type="text" id="userEmailPass" placeholder="Ex: mon_pseudo ou exemple@mail.com" required>
-        </div>
-        <div class="form-group">
-          <label for="userPassword"><i class="fa-solid fa-lock"></i> Mot de passe</label>
-          <input type="password" id="userPassword" placeholder="••••••••" required>
-        </div>
-        <button type="submit" class="btn btn-primary">
-          <i class="fa-solid fa-right-to-bracket"></i> Connexion / Inscription
-        </button>
-      </form>
-
-      <!-- Formulaire Code Appareil -->
-      <form id="formPin" class="auth-form">
-        <div class="form-group">
-          <label for="userEmailPin"><i class="fa-solid fa-envelope"></i> Email associé</label>
-          <input type="email" id="userEmailPin" placeholder="votre@email.com" required>
-        </div>
-        <div class="form-group">
-          <label for="devicePinInput"><i class="fa-solid fa-key"></i> Code Appareil (Chiffres)</label>
-          <input type="password" id="devicePinInput" pattern="[0-9]*" inputmode="numeric" placeholder="123456" required>
-        </div>
-        <button type="submit" class="btn btn-primary">
-          <i class="fa-solid fa-shield-halved"></i> Connexion avec Code
-        </button>
-      </form>
+  <!-- Menu Utilisateur avec menu déroulant -->
+  <div class="user-section" style="position: relative;">
+    <div class="user-profile" id="userMenuBtn" style="cursor: pointer; display: flex; align-items: center; gap: 10px;">
+      <i class="fa-solid fa-user-circle" style="font-size: 1.5rem;"></i>
+      <span id="displayUserEmail" style="flex: 1; overflow: hidden; text-overflow: ellipsis;">Chargement...</span>
+      <i class="fa-solid fa-chevron-down" style="font-size: 0.8rem;"></i>
     </div>
-  </div>
-
-  <!-- APPLICATION PRINCIPALE -->
-  <div class="app-container">
     
-    <aside class="sidebar">
-      <div class="brand">
-        <i class="fa-solid fa-graduation-cap"></i>
-        <span>EduSpace</span>
-      </div>
-
-      <nav class="nav-menu">
-        <button class="nav-btn active" data-target="agenda">
-          <i class="fa-solid fa-calendar-days"></i>
-          <span>Agenda</span>
-        </button>
-        <button class="nav-btn" data-target="drive">
-          <i class="fa-solid fa-hard-drive"></i>
-          <span>EduDrive</span>
-        </button>
-        <button class="nav-btn disabled"><i class="fa-solid fa-circle-question"></i><span>App 3</span></button>
-        <button class="nav-btn disabled"><i class="fa-solid fa-circle-question"></i><span>App 4</span></button>
-        <button class="nav-btn disabled"><i class="fa-solid fa-circle-question"></i><span>App 5</span></button>
-      </nav>
-
-      <!-- PROFIL UTILISATEUR & PARAMÈTRES EN BAS -->
-      <div class="user-profile-wrapper">
-        <div class="user-profile">
-          <i class="fa-solid fa-user-circle avatar"></i>
-          <span id="displayUserEmail" class="user-email">Chargement...</span>
-          <div class="user-actions">
-            <button id="btnOpenSettings" title="Paramètres & Code Appareil"><i class="fa-solid fa-gear"></i></button>
-            <button id="btnLogout" title="Déconnexion"><i class="fa-solid fa-power-off"></i></button>
-          </div>
-        </div>
-      </div>
-    </aside>
-
-    <main class="main-content">
-
-      <!-- AGENDA AVEC TABLEAU MENSUEL -->
-      <section id="section-agenda" class="app-section active">
-        <header class="section-header">
-          <h2><i class="fa-solid fa-calendar-day"></i> Agenda</h2>
-          <div class="calendar-controls">
-            <button id="btnPrevMonth" class="btn btn-secondary"><i class="fa-solid fa-chevron-left"></i></button>
-            <span id="calendarMonthYear" class="calendar-title">Mois / Année</span>
-            <button id="btnNextMonth" class="btn btn-secondary"><i class="fa-solid fa-chevron-right"></i></button>
-          </div>
-        </header>
-
-        <div class="calendar-wrapper">
-          <div class="calendar-weekdays">
-            <div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div>
-          </div>
-          <div id="calendarDaysGrid" class="calendar-days-grid"></div>
-        </div>
-      </section>
-
-      <!-- EDUDRIVE AVEC DRAG & DROP + RETOUR -->
-      <section id="section-drive" class="app-section">
-        <header class="section-header">
-          <div class="header-titles">
-            <h2><i class="fa-solid fa-folder-open"></i> EduDrive</h2>
-            <div class="drive-nav-bar">
-              <button id="btnDriveBack" class="btn btn-secondary btn-sm" title="Retour au dossier parent" disabled>
-                <i class="fa-solid fa-arrow-left"></i> Retour
-              </button>
-              <div id="breadcrumb" class="breadcrumb">
-                <span class="crumb" data-folder-id="root"><i class="fa-solid fa-house"></i> Racine</span>
-              </div>
-            </div>
-          </div>
-          <div class="header-actions">
-            <button id="btnOpenNewFolderModal" class="btn btn-secondary"><i class="fa-solid fa-folder-plus"></i> Nouveau Dossier</button>
-            <label for="fileUploadInput" class="btn btn-primary"><i class="fa-solid fa-cloud-arrow-up"></i> Transférer</label>
-            <input type="file" id="fileUploadInput" style="display: none;" multiple>
-            <div class="view-toggle">
-              <button id="btnViewList" class="btn-toggle" title="Vue Liste"><i class="fa-solid fa-list"></i></button>
-              <button id="btnViewGrid" class="btn-toggle active" title="Vue Grille"><i class="fa-solid fa-table-cells-large"></i></button>
-            </div>
-          </div>
-        </header>
-
-        <!-- Barre de progression -->
-        <div id="uploadProgressContainer" class="progress-container" style="display: none;">
-          <div class="progress-info">
-            <span id="uploadFileName">Envoi du fichier...</span>
-            <span id="uploadPercent">0%</span>
-          </div>
-          <div class="progress-bar-bg"><div id="uploadProgressBar" class="progress-bar-fill"></div></div>
-        </div>
-
-        <!-- Zone de dépôt glisser-déposer -->
-        <div id="dropZone" class="drop-zone">
-          <div id="dropZoneOverlay" class="drop-zone-overlay">
-            <i class="fa-solid fa-file-circle-plus drop-icon"></i>
-            <h3>Déposez vos fichiers ici</h3>
-          </div>
-          <div id="driveContainer" class="drive-container view-grid"></div>
-        </div>
-      </section>
-
-    </main>
+    <!-- Menu Déroulant -->
+    <div id="settingsDropdownMenu" class="dropdown-menu">
+      <button id="openAccountSettings"><i class="fa-solid fa-user-pen"></i> Paramètres du compte</button>
+      <button id="openSecuritySettings"><i class="fa-solid fa-shield-halved"></i> Sécurité & Authentification</button>
+      <hr style="margin: 5px 0; border-top: 1px solid #e2e8f0;">
+      <button id="btnLogoutDropdown" style="color: #ef4444;"><i class="fa-solid fa-right-from-bracket"></i> Déconnexion</button>
+    </div>
   </div>
+</aside>
 
-  <!-- MODAL PARAMÈTRES (S'OUVRE DEPUIS L'ENGRENAGE EN BAS) -->
-  <div id="settingsModal" class="modal-overlay">
-    <div class="modal-box">
-      <div class="modal-header">
-        <h3><i class="fa-solid fa-gear"></i> Paramètres & Sécurité</h3>
-        <button id="closeSettingsModal" class="btn-close">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div class="settings-card">
-          <h4><i class="fa-solid fa-key"></i> Code Appareil</h4>
-          <p class="settings-desc">Code à 6 chiffres renouvelé tous les 30 jours pour la connexion rapide.</p>
-          
-          <div class="code-display-box">
-            <span class="code-label">Code Actuel :</span>
-            <span id="currentDevicePin" class="code-value">------</span>
-            <span id="pinExpiryDate" class="code-expiry">Expire le: --/--/----</span>
-          </div>
+<!-- MODAL : PARAMÈTRES DU COMPTE -->
+<div class="modal-overlay" id="accountSettingsModal">
+  <div class="modal-content">
+    <h3>Paramètres du compte</h3>
+    <div style="margin-top: 15px; text-align: left;">
+      <label>Prénom :</label>
+      <input type="text" id="profileFirstName" placeholder="Votre prénom" class="modal-input">
+      
+      <label style="margin-top: 10px;">Email de récupération (Sauvegarde) :</label>
+      <input type="email" id="profileBackupEmail" placeholder="email@secours.com" class="modal-input">
+      
+      <button id="btnSaveProfile" class="btn-primary" style="margin-top: 15px; width: 100%;">Enregistrer</button>
+      
+      <hr style="margin: 20px 0;">
+      <h4 style="color: #ef4444;">Zone de danger</h4>
+      <button id="btnDeleteAccount" class="btn-secondary" style="border-color: #ef4444; color: #ef4444; width: 100%;">Fermer le compte (Supprimer)</button>
+    </div>
+    <button class="btn-secondary" id="closeAccountModal" style="margin-top: 15px; width: 100%;">Fermer</button>
+  </div>
+</div>
 
-          <button id="btnRegeneratePin" class="btn btn-warning">
-            <i class="fa-solid fa-rotate-right"></i> Générer un nouveau Code
-          </button>
-        </div>
-      </div>
+<!-- MODAL : SÉCURITÉ (Code PIN déplacé ici) -->
+<div class="modal-overlay" id="securitySettingsModal">
+  <div class="modal-content">
+    <h3>Sécurité & Authentification</h3>
+    <p>Code d'accès pour ce navigateur :</p>
+    <div class="pin-display" id="currentDevicePin">------</div>
+    <p class="pin-expiry" id="pinExpiryDate">...</p>
+    <button id="btnRegeneratePin" class="btn-primary" style="width: 100%; margin-bottom: 10px;">Générer un nouveau code</button>
+    <button class="btn-secondary" id="closeSecurityModal" style="width: 100%;">Fermer</button>
+  </div>
+</div>
+
+<!-- SECTION AGENDA (Avec bascule Calendrier / Tâches) -->
+<section id="section-agenda" class="app-section">
+  <div class="agenda-header" style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+    <div class="month-controls">
+      <button id="btnPrevMonth"><i class="fa-solid fa-chevron-left"></i></button>
+      <h3 id="calendarMonthYear">Mois Année</h3>
+      <button id="btnNextMonth"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+    
+    <!-- Commutateur de vue Agenda -->
+    <div class="view-toggle-group">
+      <button id="btnAgendaCalView" class="view-btn active" title="Vue Calendrier"><i class="fa-solid fa-calendar"></i></button>
+      <button id="btnAgendaTaskView" class="view-btn" title="Vue Tâches (To-Do)"><i class="fa-solid fa-list-check"></i></button>
     </div>
   </div>
 
-  <!-- MENU CONTEXTUEL CLIC DROIT -->
-  <div id="contextMenu" class="context-menu">
-    <ul>
-      <li id="ctxOpen"><i class="fa-solid fa-folder-open"></i> Ouvrir / Télécharger</li>
-      <li id="ctxRename"><i class="fa-solid fa-pen"></i> Renommer</li>
-      <li id="ctxDelete" class="danger"><i class="fa-solid fa-trash-can"></i> Supprimer</li>
-    </ul>
-  </div>
-
-  <!-- MODAL INTUITIF (CONFIRMATIONS / ENTREES) -->
-  <div id="customModal" class="modal-overlay">
-    <div class="modal-box">
-      <div class="modal-header">
-        <h3 id="modalTitle">Titre de l'action</h3>
-        <button id="modalCloseX" class="btn-close">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p id="modalDescription"></p>
-        <div id="modalInputContainer" class="form-group" style="margin-top: 1rem;">
-          <input type="text" id="modalInput" class="modal-input" placeholder="Tapez ici...">
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button id="modalBtnCancel" class="btn btn-secondary">Annuler</button>
-        <button id="modalBtnConfirm" class="btn btn-primary">Valider</button>
-      </div>
+  <!-- Conteneur Calendrier -->
+  <div id="calendarContainer">
+    <div class="calendar-days-header">
+      <span>Lun</span><span>Mar</span><span>Mer</span><span>Jeu</span><span>Ven</span><span>Sam</span><span>Dim</span>
     </div>
+    <div class="calendar-grid" id="calendarDaysGrid"></div>
   </div>
 
-  <script type="module" src="app.js"></script>
-</body>
-</html>
+  <!-- Conteneur Liste des Tâches -->
+  <div id="tasksListContainer" style="display: none;">
+    <!-- Injecté en JS -->
+  </div>
+</section>
