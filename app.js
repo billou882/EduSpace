@@ -31,45 +31,77 @@ let currentFolderId = "root";
 let folderHistory = [{ id: "root", name: "Racine" }];
 let selectedItem = null;
 
+let currentCalendarDate = new Date();
+
 // DOM Elements
 const authOverlay = document.getElementById("authOverlay");
-const tabPass = document.getElementById("tabPass");
-const tabPin = document.getElementById("tabPin");
-const formPass = document.getElementById("formPass");
-const formPin = document.getElementById("formPin");
-
-const userEmailPass = document.getElementById("userEmailPass");
-const userPassword = document.getElementById("userPassword");
-const userEmailPin = document.getElementById("userEmailPin");
-const devicePinInput = document.getElementById("devicePinInput");
-
 const displayUserEmail = document.getElementById("displayUserEmail");
 const btnLogout = document.getElementById("btnLogout");
 
+// Settings Modal
+const settingsModal = document.getElementById("settingsModal");
+const btnOpenSettings = document.getElementById("btnOpenSettings");
+const closeSettingsModal = document.getElementById("closeSettingsModal");
 const currentDevicePin = document.getElementById("currentDevicePin");
 const pinExpiryDate = document.getElementById("pinExpiryDate");
 const btnRegeneratePin = document.getElementById("btnRegeneratePin");
 
+// Drive & Navigation
+const btnDriveBack = document.getElementById("btnDriveBack");
+const dropZone = document.getElementById("dropZone");
+
 /* ======================================================
-   1. NAVIGATION ENTRE ÉCRANS ET ONGLETS
+   1. GESTION DU MODAL INTUITIF
    ====================================================== */
 
-// Switcher les onglets de connexion
-tabPass.addEventListener("click", () => {
-  tabPass.classList.add("active");
-  tabPin.classList.remove("active");
-  formPass.classList.add("active");
-  formPin.classList.remove("active");
-});
+const customModal = document.getElementById("customModal");
+const modalTitle = document.getElementById("modalTitle");
+const modalDescription = document.getElementById("modalDescription");
+const modalInputContainer = document.getElementById("modalInputContainer");
+const modalInput = document.getElementById("modalInput");
+const modalBtnConfirm = document.getElementById("modalBtnConfirm");
+const modalBtnCancel = document.getElementById("modalBtnCancel");
+const modalCloseX = document.getElementById("modalCloseX");
+let modalResolve = null;
 
-tabPin.addEventListener("click", () => {
-  tabPin.classList.add("active");
-  tabPass.classList.remove("active");
-  formPin.classList.add("active");
-  formPass.classList.remove("active");
-});
+function showModal({ title, description, showInput = false, defaultValue = "", confirmText = "Valider" }) {
+  return new Promise((resolve) => {
+    modalResolve = resolve;
+    modalTitle.textContent = title;
+    modalDescription.textContent = description;
+    modalBtnConfirm.textContent = confirmText;
 
-// Navigation menu latéral
+    if (showInput) {
+      modalInputContainer.style.display = "block";
+      modalInput.value = defaultValue;
+      setTimeout(() => modalInput.focus(), 100);
+    } else {
+      modalInputContainer.style.display = "none";
+    }
+
+    customModal.classList.add("active");
+  });
+}
+
+function closeModal(result = null) {
+  customModal.classList.remove("active");
+  if (modalResolve) {
+    modalResolve(result);
+    modalResolve = null;
+  }
+}
+
+modalBtnConfirm.addEventListener("click", () => {
+  const isInputVisible = modalInputContainer.style.display !== "none";
+  closeModal(isInputVisible ? modalInput.value.trim() : true);
+});
+modalBtnCancel.addEventListener("click", () => closeModal(null));
+modalCloseX.addEventListener("click", () => closeModal(null));
+
+/* ======================================================
+   2. AUTHENTIFICATION & NAVIGATION
+   ====================================================== */
+
 document.querySelectorAll(".nav-btn:not(.disabled)").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
@@ -81,21 +113,15 @@ document.querySelectorAll(".nav-btn:not(.disabled)").forEach(btn => {
   });
 });
 
-/* ======================================================
-   2. LOGIQUE D'AUTHENTIFICATION & SURNOM
-   ====================================================== */
-
-// Convertir un surnom en format email si nécessaire
 function formatUserEmail(input) {
   if (input.includes("@")) return input;
   return `${input.toLowerCase().replace(/\s+/g, '')}@eduspace.local`;
 }
 
-// Option 1 : Connexion Email/Surnom + Mot de passe
-formPass.addEventListener("submit", async (e) => {
+document.getElementById("formPass").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const email = formatUserEmail(userEmailPass.value.trim());
-  const pass = userPassword.value.trim();
+  const email = formatUserEmail(document.getElementById("userEmailPass").value.trim());
+  const pass = document.getElementById("userPassword").value.trim();
 
   try {
     await signInWithEmailAndPassword(auth, email, pass);
@@ -104,53 +130,14 @@ formPass.addEventListener("submit", async (e) => {
       try {
         await createUserWithEmailAndPassword(auth, email, pass);
       } catch (createErr) {
-        alert("Erreur de création: " + createErr.message);
+        showModal({ title: "Erreur d'inscription", description: createErr.message });
       }
     } else {
-      alert("Erreur: " + error.message);
+      showModal({ title: "Erreur de connexion", description: error.message });
     }
   }
 });
 
-// Option 2 : Connexion uniquement via Code Appareil
-formPin.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const email = formatUserEmail(userEmailPin.value.trim());
-  const pinEntered = devicePinInput.value.trim();
-
-  try {
-    // Vérifier dans Firestore si le PIN correspond
-    const pinDocRef = doc(db, "devicePins", email.toLowerCase());
-    const pinDoc = await getDoc(pinDocRef);
-
-    if (!pinDoc.exists()) {
-      alert("Aucun code appareil configuré pour cet utilisateur.");
-      return;
-    }
-
-    const data = pinDoc.data();
-    const now = new Date();
-    const expiry = data.expiresAt ? data.expiresAt.toDate() : new Date(0);
-
-    if (now > expiry) {
-      alert("Ce code appareil a expiré (renouvellement mensuel requis dans les Paramètres).");
-      return;
-    }
-
-    if (data.pin !== pinEntered) {
-      alert("Code appareil incorrect.");
-      return;
-    }
-
-    // Connexion avec le mot de passe maître stocké
-    await signInWithEmailAndPassword(auth, email, data.masterPass);
-
-  } catch (error) {
-    alert("Erreur lors de la vérification du code : " + error.message);
-  }
-});
-
-// Surveillance de l'état de connexion
 onAuthStateChanged(auth, async (user) => {
   if (user) {
     currentUser = user;
@@ -159,6 +146,7 @@ onAuthStateChanged(auth, async (user) => {
     
     await checkAndAutoRenewPin();
     loadDriveContent();
+    renderCalendar();
   } else {
     currentUser = null;
     authOverlay.style.display = "flex";
@@ -168,20 +156,19 @@ onAuthStateChanged(auth, async (user) => {
 btnLogout.addEventListener("click", () => signOut(auth));
 
 /* ======================================================
-   3. GESTION DU CODE APPAREIL & RENOUVELLEMENT MENSUEL
+   3. PARAMÈTRES DANS LE MODAL
    ====================================================== */
 
-function generate6DigitPin() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
+btnOpenSettings.addEventListener("click", () => settingsModal.classList.add("active"));
+closeSettingsModal.addEventListener("click", () => settingsModal.classList.remove("active"));
+
+function generate6DigitPin() { return Math.floor(100000 + Math.random() * 900000).toString(); }
 
 async function checkAndAutoRenewPin() {
   if (!currentUser) return;
-
   const emailKey = currentUser.email.toLowerCase();
   const pinDocRef = doc(db, "devicePins", emailKey);
   const pinDoc = await getDoc(pinDocRef);
-
   const now = new Date();
 
   if (!pinDoc.exists()) {
@@ -189,31 +176,19 @@ async function checkAndAutoRenewPin() {
   } else {
     const data = pinDoc.data();
     const expiry = data.expiresAt ? data.expiresAt.toDate() : new Date(0);
-
-    // Si le code a plus d'un mois, le renouveler automatiquement
-    if (now > expiry) {
-      await createNewDevicePin();
-    } else {
-      updatePinUI(data.pin, expiry);
-    }
+    if (now > expiry) await createNewDevicePin();
+    else updatePinUI(data.pin, expiry);
   }
 }
 
 async function createNewDevicePin() {
   const newPin = generate6DigitPin();
-  
-  // Expiration définie à +30 jours (Changement tous les mois)
   const expiryDate = new Date();
   expiryDate.setDate(expiryDate.getDate() + 30);
 
   const emailKey = currentUser.email.toLowerCase();
-  const pinDocRef = doc(db, "devicePins", emailKey);
-
-  await setDoc(pinDocRef, {
-    pin: newPin,
-    expiresAt: expiryDate,
-    updatedAt: serverTimestamp(),
-    masterPass: "EduSpaceMasterPass#2026"
+  await setDoc(doc(db, "devicePins", emailKey), {
+    pin: newPin, expiresAt: expiryDate, updatedAt: serverTimestamp(), masterPass: "EduSpaceMasterPass#2026"
   }, { merge: true });
 
   updatePinUI(newPin, expiryDate);
@@ -224,20 +199,85 @@ function updatePinUI(pin, expiry) {
   pinExpiryDate.textContent = `Expire le : ${expiry.toLocaleDateString()}`;
 }
 
-// Bouton de régénération manuelle dans le sous-menu Paramètres
 btnRegeneratePin.addEventListener("click", async () => {
-  if (confirm("Voulez-vous générer un nouveau code appareil dès maintenant ?")) {
+  const confirmed = await showModal({ title: "Nouveau Code", description: "Voulez-vous générer un nouveau code ?", confirmText: "Générer" });
+  if (confirmed) {
     await createNewDevicePin();
-    alert("Nouveau code généré avec succès !");
+    showModal({ title: "Succès", description: "Nouveau code créé." });
   }
 });
 
 /* ======================================================
-   4. GESTION DRIVE & MENU CONTEXTUEL
+   4. AGENDA - TABLEAU MENSUEL
    ====================================================== */
+
+function renderCalendar() {
+  const grid = document.getElementById("calendarDaysGrid");
+  const monthYearLabel = document.getElementById("calendarMonthYear");
+  grid.innerHTML = "";
+
+  const year = currentCalendarDate.getFullYear();
+  const month = currentCalendarDate.getMonth();
+
+  const monthNames = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+  monthYearLabel.textContent = `${monthNames[month]} ${year}`;
+
+  const firstDayIndex = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  // Ajustement pour commencer le Lundi (0=Dimanche)
+  const startingDay = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
+
+  for (let i = 0; i < startingDay; i++) {
+    const emptyDiv = document.createElement("div");
+    emptyDiv.className = "cal-day empty";
+    grid.appendChild(emptyDiv);
+  }
+
+  const today = new Date();
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dayDiv = document.createElement("div");
+    dayDiv.className = "cal-day";
+    
+    if (day === today.getDate() && month === today.getMonth() && year === today.getFullYear()) {
+      dayDiv.classList.add("today");
+    }
+
+    dayDiv.innerHTML = `<span class="day-number">${day}</span>`;
+    grid.appendChild(dayDiv);
+  }
+}
+
+document.getElementById("btnPrevMonth").addEventListener("click", () => {
+  currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
+  renderCalendar();
+});
+
+document.getElementById("btnNextMonth").addEventListener("click", () => {
+  currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
+  renderCalendar();
+});
+
+/* ======================================================
+   5. EDUDRIVE - GLISSER/DÉPOSER & RETOUR
+   ====================================================== */
+
+// Gestion du bouton retour
+btnDriveBack.addEventListener("click", () => {
+  if (folderHistory.length > 1) {
+    folderHistory.pop();
+    const parentFolder = folderHistory[folderHistory.length - 1];
+    currentFolderId = parentFolder.id;
+    updateBreadcrumb();
+    loadDriveContent();
+  }
+});
 
 function loadDriveContent() {
   if (!currentUser) return;
+
+  btnDriveBack.disabled = folderHistory.length <= 1;
 
   const q = query(
     collection(db, "users", currentUser.uid, "items"),
@@ -249,13 +289,12 @@ function loadDriveContent() {
     driveContainer.innerHTML = "";
     
     if (snapshot.empty) {
-      driveContainer.innerHTML = `<div style="grid-column: 1/-1; text-align:center; color: var(--text-muted); padding: 2rem;">Ce dossier est vide.</div>`;
+      driveContainer.innerHTML = `<div style="grid-column: 1/-1; text-align:center; color: var(--text-muted); padding: 3rem;"><i class="fa-solid fa-folder-open" style="font-size: 2.5rem; margin-bottom: 0.5rem;"></i><p>Dossier vide. Glissez des fichiers ici pour les ajouter !</p></div>`;
       return;
     }
 
     snapshot.forEach((docSnap) => {
-      const item = { id: docSnap.id, ...docSnap.data() };
-      renderDriveCard(item);
+      renderDriveCard({ id: docSnap.id, ...docSnap.data() });
     });
   });
 }
@@ -270,6 +309,8 @@ function renderDriveCard(item) {
     const ext = item.name.split('.').pop().toLowerCase();
     if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) {
       previewContent = `<img src="${item.url}" alt="${item.name}">`;
+    } else if (ext === "pdf") {
+      previewContent = `<i class="fa-solid fa-file-pdf" style="color: #ef4444;"></i>`;
     }
   }
 
@@ -278,7 +319,6 @@ function renderDriveCard(item) {
     <div class="card-footer">
       <i class="fa-solid ${item.type === 'folder' ? 'fa-folder' : 'fa-file'}"></i>
       <span class="card-title">${item.name}</span>
-      <span class="badge-ext">${item.type === 'folder' ? 'DOSSIER' : 'FICHIER'}</span>
     </div>
   `;
 
@@ -322,65 +362,101 @@ function updateBreadcrumb() {
   });
 }
 
-// Action de création de dossier
-document.getElementById("btnNewFolder").addEventListener("click", async () => {
-  const folderName = prompt("Nom du nouveau dossier :");
+// GLISSER - DÉPOSER (DRAG AND DROP)
+['dragenter', 'dragover'].forEach(eventName => {
+  dropZone.addEventListener(eventName, (e) => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  }, false);
+});
+
+['dragleave', 'drop'].forEach(eventName => {
+  dropZone.addEventListener(eventName, (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+  }, false);
+});
+
+dropZone.addEventListener('drop', (e) => {
+  const files = e.dataTransfer.files;
+  if (files.length > 0) uploadFiles(files);
+});
+
+document.getElementById("fileUploadInput").addEventListener("change", (e) => {
+  if (e.target.files.length > 0) uploadFiles(e.target.files);
+});
+
+async function uploadFiles(files) {
+  for (let file of files) {
+    await processFileUpload(file);
+  }
+}
+
+function processFileUpload(file) {
+  return new Promise((resolve) => {
+    const progressContainer = document.getElementById("uploadProgressContainer");
+    const progressBar = document.getElementById("uploadProgressBar");
+    const progressText = document.getElementById("uploadPercent");
+    const fileNameText = document.getElementById("uploadFileName");
+
+    progressContainer.style.display = "block";
+    fileNameText.textContent = `Envoi de : ${file.name}`;
+
+    const storageRef = ref(storage, `users/${currentUser.uid}/${Date.now()}_${file.name}`);
+    const uploadTask = uploadBytesResumable(storageRef, file);
+
+    uploadTask.on("state_changed", 
+      (snapshot) => {
+        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+        progressBar.style.width = `${progress}%`;
+        progressText.textContent = `${Math.round(progress)}%`;
+      }, 
+      (err) => {
+        progressContainer.style.display = "none";
+        showModal({ title: "Erreur d'envoi", description: err.message });
+        resolve();
+      },
+      async () => {
+        const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+        await addDoc(collection(db, "users", currentUser.uid, "items"), {
+          name: file.name, type: "file", url: downloadURL,
+          storagePath: storageRef.fullPath, parentId: currentFolderId, createdAt: serverTimestamp()
+        });
+        progressContainer.style.display = "none";
+        progressBar.style.width = "0%";
+        resolve();
+      }
+    );
+  });
+}
+
+// Nouveau Dossier
+document.getElementById("btnOpenNewFolderModal").addEventListener("click", async () => {
+  const folderName = await showModal({ title: "Nouveau Dossier", description: "Nom du dossier :", showInput: true, confirmText: "Créer" });
   if (!folderName) return;
 
   await addDoc(collection(db, "users", currentUser.uid, "items"), {
-    name: folderName,
-    type: "folder",
-    parentId: currentFolderId,
-    createdAt: serverTimestamp()
+    name: folderName, type: "folder", parentId: currentFolderId, createdAt: serverTimestamp()
   });
 });
 
-// Action de téléversement de fichier
-document.getElementById("fileUploadInput").addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+// Menu contextuel
+document.addEventListener("click", () => document.getElementById("contextMenu").style.display = "none");
 
-  const storageRef = ref(storage, `users/${currentUser.uid}/${Date.now()}_${file.name}`);
-  const uploadTask = uploadBytesResumable(storageRef, file);
-
-  uploadTask.on("state_changed", null, 
-    (err) => alert("Erreur d'envoi : " + err.message),
-    async () => {
-      const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-      await addDoc(collection(db, "users", currentUser.uid, "items"), {
-        name: file.name,
-        type: "file",
-        url: downloadURL,
-        storagePath: storageRef.fullPath,
-        parentId: currentFolderId,
-        createdAt: serverTimestamp()
-      });
-    }
-  );
-});
-
-// Fermer le menu contextuel au clic ailleurs
-document.addEventListener("click", () => {
-  document.getElementById("contextMenu").style.display = "none";
-});
-
-// Menu contextuel : Renommer
 document.getElementById("ctxRename").addEventListener("click", async () => {
   if (!selectedItem) return;
-  const newName = prompt("Nouveau nom :", selectedItem.name);
+  const newName = await showModal({ title: "Renommer", description: "Nouveau nom :", showInput: true, defaultValue: selectedItem.name, confirmText: "Enregistrer" });
   if (!newName) return;
-
   await updateDoc(doc(db, "users", currentUser.uid, "items", selectedItem.id), { name: newName });
 });
 
-// Menu contextuel : Supprimer
 document.getElementById("ctxDelete").addEventListener("click", async () => {
   if (!selectedItem) return;
-  if (!confirm(`Supprimer "${selectedItem.name}" ?`)) return;
+  const confirmed = await showModal({ title: "Supprimer", description: `Supprimer "${selectedItem.name}" ?`, confirmText: "Supprimer" });
+  if (!confirmed) return;
 
   if (selectedItem.type === "file" && selectedItem.storagePath) {
     await deleteObject(ref(storage, selectedItem.storagePath)).catch(console.error);
   }
-
   await deleteDoc(doc(db, "users", currentUser.uid, "items", selectedItem.id));
 });
